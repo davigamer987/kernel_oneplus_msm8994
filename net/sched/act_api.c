@@ -270,6 +270,10 @@ int tcf_register_action(struct tc_action_ops *act)
 {
 	struct tc_action_ops *a, **ap;
 
+	/* Must supply act, dump, cleanup and init */
+	if (!act->act || !act->dump || !act->cleanup || !act->init)
+		return -EINVAL;
+
 	write_lock(&act_mod_lock);
 	for (ap = &act_base; (a = *ap) != NULL; ap = &a->next) {
 		if (act->type == a->type || (strcmp(act->kind, a->kind) == 0)) {
@@ -723,8 +727,6 @@ tcf_action_get_1(struct nlattr *nla, struct nlmsghdr *n, u32 portid)
 	a->ops = tc_lookup_action(tb[TCA_ACT_KIND]);
 	if (a->ops == NULL)
 		goto err_free;
-	if (a->ops->lookup == NULL)
-		goto err_mod;
 	err = -ENOENT;
 	if (a->ops->lookup(a, index) == 0)
 		goto err_mod;
