@@ -3377,6 +3377,8 @@ static void free_event(struct perf_event *event)
 	if (is_cgroup_event(event))
 		perf_detach_cgroup(event);
 
+	perf_event_free_bpf_prog(event);
+
 	if (event->destroy)
 		event->destroy(event);
 
