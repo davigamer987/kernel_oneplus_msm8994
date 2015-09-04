@@ -18,9 +18,6 @@
 #include <linux/bit_spinlock.h>
 #include <linux/shrinker.h>
 
-
-#include <linux/sync_core.h>
-
 #ifdef CONFIG_STRICT_MEMORY_RWX
 extern char __init_data_begin[];
 #endif
@@ -165,6 +162,12 @@ extern unsigned int kobjsize(const void *objp);
 #else
 #define VM_STACK_FLAGS	(VM_GROWSDOWN | VM_STACK_DEFAULT_FLAGS | VM_ACCOUNT)
 #endif
+
+#define VM_READHINTMASK			(VM_SEQ_READ | VM_RAND_READ)
+#define VM_ClearReadHint(v)		(v)->vm_flags &= ~VM_READHINTMASK
+#define VM_NormalReadHint(v)		(!((v)->vm_flags & VM_READHINTMASK))
+#define VM_SequentialReadHint(v)	((v)->vm_flags & VM_SEQ_READ)
+#define VM_RandomReadHint(v)		((v)->vm_flags & VM_RAND_READ)
 
 /*
  * Special vmas that are non-mergable, non-mlock()able.
@@ -1626,6 +1629,7 @@ void page_cache_async_readahead(struct address_space *mapping,
 				pgoff_t offset,
 				unsigned long size);
 
+unsigned long max_sane_readahead(unsigned long nr);
 unsigned long ra_submit(struct file_ra_state *ra,
 			struct address_space *mapping,
 			struct file *filp);
@@ -1908,37 +1912,14 @@ static inline void setup_nr_node_ids(void) {}
 enum {
 	MEMBARRIER_STATE_PRIVATE_EXPEDITED_READY	= (1U << 0),
 	MEMBARRIER_STATE_SWITCH_MM			= (1U << 1),
-	MEMBARRIER_STATE_GLOBAL_EXPEDITED_READY			= (1U << 2),
-	MEMBARRIER_STATE_GLOBAL_EXPEDITED			= (1U << 3),
-	MEMBARRIER_STATE_PRIVATE_EXPEDITED_SYNC_CORE_READY	= (1U << 4),
-	MEMBARRIER_STATE_PRIVATE_EXPEDITED_SYNC_CORE		= (1U << 5),
 };
-
-
-enum {
-	MEMBARRIER_FLAG_SYNC_CORE	= (1U << 0),
-};
-
-
-static inline void membarrier_mm_sync_core_before_usermode(struct mm_struct *mm)
-{
-	if (likely(!(atomic_read(&mm->membarrier_state) &
-		     MEMBARRIER_STATE_PRIVATE_EXPEDITED_SYNC_CORE)))
-		return;
-
-	sync_core_before_usermode();
-}
 
 
 static inline void membarrier_execve(struct task_struct *t)
 {
-	atomic_set(&t->mm->membarrier_state, 0);
+	//atomic_set(&t->mm->membarrier_state, 0);
 }
 #else
-static inline void membarrier_mm_sync_core_before_usermode(struct mm_struct *mm)
-{
-}
-
 static inline void membarrier_execve(struct task_struct *t)
 {
 }
