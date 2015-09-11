@@ -254,6 +254,7 @@ header-y += matroxfb.h
 header-y += maxim_sti.h
 header-y += mdio.h
 header-y += media.h
+header-y += membarrier.h
 header-y += mei.h
 header-y += mempolicy.h
 header-y += meye.h
