@@ -70,7 +70,14 @@ static bool htab_lru_map_delete_node(void *arg, struct bpf_lru_node *node);
 
 static bool htab_is_lru(const struct bpf_htab *htab)
 {
-	return htab->map.map_type == BPF_MAP_TYPE_LRU_HASH;
+	return htab->map.map_type == BPF_MAP_TYPE_LRU_HASH ||
+		htab->map.map_type == BPF_MAP_TYPE_LRU_PERCPU_HASH;
+}
+
+static bool htab_is_percpu(const struct bpf_htab *htab)
+{
+	return htab->map.map_type == BPF_MAP_TYPE_PERCPU_HASH ||
+		htab->map.map_type == BPF_MAP_TYPE_LRU_PERCPU_HASH;
 }
 
 static inline void htab_elem_set_ptr(struct htab_elem *l, u32 key_size,
@@ -93,7 +100,7 @@ static void htab_free_elems(struct bpf_htab *htab)
 {
 	int i;
 
-	if (htab->map.map_type != BPF_MAP_TYPE_PERCPU_HASH)
+	if (!htab_is_percpu(htab))
 		goto free_elems;
 
 	for (i = 0; i < htab->map.max_entries; i++) {
@@ -131,7 +138,7 @@ static int prealloc_init(struct bpf_htab *htab)
 	if (!htab->elems)
 		return -ENOMEM;
 
-	if (htab->map.map_type != BPF_MAP_TYPE_PERCPU_HASH)
+	if (!htab_is_percpu(htab))
 		goto skip_percpu_elems;
 
 	for (i = 0; i < htab->map.max_entries; i++) {
@@ -204,8 +211,10 @@ static int alloc_extra_elems(struct bpf_htab *htab)
 /* Called from syscall */
 static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 {
-	bool percpu = attr->map_type == BPF_MAP_TYPE_PERCPU_HASH;
-	bool lru = attr->map_type == BPF_MAP_TYPE_LRU_HASH;
+	bool percpu = (attr->map_type == BPF_MAP_TYPE_PERCPU_HASH ||
+		       attr->map_type == BPF_MAP_TYPE_LRU_PERCPU_HASH);
+	bool lru = (attr->map_type == BPF_MAP_TYPE_LRU_HASH ||
+		    attr->map_type == BPF_MAP_TYPE_LRU_PERCPU_HASH);
 	/* percpu_lru means each cpu has its own LRU list.
 	 * it is different from BPF_MAP_TYPE_PERCPU_HASH where
 	 * the map's value itself is percpu.  percpu_lru has
@@ -926,6 +935,13 @@ static int htab_percpu_map_update_elem(struct bpf_map *map, void *key,
 	return __htab_percpu_map_update_elem(map, key, value, map_flags, false);
 }
 
+static int htab_lru_percpu_map_update_elem(struct bpf_map *map, void *key,
+					   void *value, u64 map_flags)
+{
+	return __htab_lru_percpu_map_update_elem(map, key, value, map_flags,
+						 false);
+}
+
 /* Called from syscall or from eBPF program */
 static int htab_map_delete_elem(struct bpf_map *map, void *key)
 {
@@ -1073,8 +1089,21 @@ static void *htab_percpu_map_lookup_elem(struct bpf_map *map, void *key)
 		return NULL;
 }
 
+static void *htab_lru_percpu_map_lookup_elem(struct bpf_map *map, void *key)
+{
+	struct htab_elem *l = __htab_map_lookup_elem(map, key);
+
+	if (l) {
+		bpf_lru_node_set_ref(&l->lru_node);
+		return this_cpu_ptr(htab_elem_get_ptr(l, map->key_size));
+	}
+
+	return NULL;
+}
+
 int bpf_percpu_hash_copy(struct bpf_map *map, void *key, void *value)
 {
+	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
 	struct htab_elem *l;
 	void __percpu *pptr;
 	int ret = -ENOENT;
@@ -1090,6 +1119,8 @@ int bpf_percpu_hash_copy(struct bpf_map *map, void *key, void *value)
 	l = __htab_map_lookup_elem(map, key);
 	if (!l)
 		goto out;
+	if (htab_is_lru(htab))
+		bpf_lru_node_set_ref(&l->lru_node);
 	pptr = htab_elem_get_ptr(l, map->key_size);
 	for_each_possible_cpu(cpu) {
 		bpf_long_memcpy(value + off,
@@ -1105,10 +1136,16 @@ out:
 int bpf_percpu_hash_update(struct bpf_map *map, void *key, void *value,
 			   u64 map_flags)
 {
+	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
 	int ret;
 
 	rcu_read_lock();
-	ret = __htab_percpu_map_update_elem(map, key, value, map_flags, true);
+	if (htab_is_lru(htab))
+		ret = __htab_lru_percpu_map_update_elem(map, key, value,
+							map_flags, true);
+	else
+		ret = __htab_percpu_map_update_elem(map, key, value, map_flags,
+						    true);
 	rcu_read_unlock();
 
 	return ret;
@@ -1128,11 +1165,26 @@ static struct bpf_map_type_list htab_percpu_type __read_mostly = {
 	.type = BPF_MAP_TYPE_PERCPU_HASH,
 };
 
+static const struct bpf_map_ops htab_lru_percpu_ops = {
+	.map_alloc = htab_map_alloc,
+	.map_free = htab_map_free,
+	.map_get_next_key = htab_map_get_next_key,
+	.map_lookup_elem = htab_lru_percpu_map_lookup_elem,
+	.map_update_elem = htab_lru_percpu_map_update_elem,
+	.map_delete_elem = htab_lru_map_delete_elem,
+};
+
+static struct bpf_map_type_list htab_lru_percpu_type __read_mostly = {
+	.ops = &htab_lru_percpu_ops,
+	.type = BPF_MAP_TYPE_LRU_PERCPU_HASH,
+};
+
 static int __init register_htab_map(void)
 {
 	bpf_register_map_type(&htab_type);
 	bpf_register_map_type(&htab_percpu_type);
 	bpf_register_map_type(&htab_lru_type);
+	bpf_register_map_type(&htab_lru_percpu_type);
 	return 0;
 }
 late_initcall(register_htab_map);
