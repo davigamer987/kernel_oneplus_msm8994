@@ -1334,6 +1334,7 @@ static int check_map_func_compatibility(struct bpf_map *map, int func_id)
 			goto error;
 		break;
 	case BPF_MAP_TYPE_ARRAY_OF_MAPS:
+	case BPF_MAP_TYPE_HASH_OF_MAPS:
 		if (func_id != BPF_FUNC_map_lookup_elem)
 			goto error;
 	default:
@@ -3381,7 +3382,8 @@ process_bpf_exit:
 static int check_map_prealloc(struct bpf_map *map)
 {
 	return (map->map_type != BPF_MAP_TYPE_HASH &&
-		map->map_type != BPF_MAP_TYPE_PERCPU_HASH) ||
+		map->map_type != BPF_MAP_TYPE_PERCPU_HASH &&
+		map->map_type != BPF_MAP_TYPE_HASH_OF_MAPS) ||
 		!(map->map_flags & BPF_F_NO_PREALLOC);
 }
 
