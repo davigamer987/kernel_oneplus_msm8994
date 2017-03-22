@@ -196,6 +196,7 @@ union bpf_attr {
 		__u32	value_size;	/* size of value in bytes */
 		__u32	max_entries;	/* max number of entries in a map */
 		__u32	map_flags;	/* prealloc or not */
+		__u32	inner_map_fd;	/* fd pointing to the inner map */
 	};
 
 	struct { /* anonymous struct used by BPF_MAP_*_ELEM commands */
