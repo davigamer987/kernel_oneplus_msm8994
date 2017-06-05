@@ -191,6 +191,7 @@ static void bpf_map_put_uref(struct bpf_map *map)
 void bpf_map_put(struct bpf_map *map)
 {
 	if (atomic_dec_and_test(&map->refcnt)) {
+		/* bpf_map_free_id() must be called first */
 		bpf_map_free_id(map);
 		INIT_WORK(&map->work, bpf_map_free_deferred);
 		schedule_work(&map->work);
@@ -891,7 +892,8 @@ static void __bpf_prog_put_rcu(struct rcu_head *rcu)
 void bpf_prog_put(struct bpf_prog *prog)
 {
 	if (atomic_dec_and_test(&prog->aux->refcnt)) {
-                bpf_prog_free_id(prog);
+		/* bpf_prog_free_id() must be called first */
+		bpf_prog_free_id(prog);
 		bpf_prog_kallsyms_del(prog);
 		call_rcu(&prog->aux->rcu, __bpf_prog_put_rcu);
 	}
@@ -1551,7 +1553,14 @@ SYSCALL_DEFINE3(bpf, int, cmd, union bpf_attr __user *, uattr, unsigned int, siz
 		err = bpf_prog_detach(&attr);
 		break;
 #endif
-
+	case BPF_PROG_GET_NEXT_ID:
+		err = bpf_obj_get_next_id(&attr, uattr,
+					  &prog_idr, &prog_idr_lock);
+		break;
+	case BPF_MAP_GET_NEXT_ID:
+		err = bpf_obj_get_next_id(&attr, uattr,
+					  &map_idr, &map_idr_lock);
+		break;
 	default:
 		err = -EINVAL;
 		break;
