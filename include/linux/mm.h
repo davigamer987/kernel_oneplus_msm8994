@@ -1912,6 +1912,9 @@ static inline void setup_nr_node_ids(void) {}
 enum {
 	MEMBARRIER_STATE_PRIVATE_EXPEDITED_READY	= (1U << 0),
 	MEMBARRIER_STATE_SWITCH_MM			= (1U << 1),
+MEMBARRIER_STATE_GLOBAL_EXPEDITED_READY			= (1U << 2),
+	MEMBARRIER_STATE_GLOBAL_EXPEDITED			= (1U << 3),
+
 };
 
 
