@@ -1276,6 +1276,25 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 			bpf_prog_put(prog);
 		cgroup_put(cgrp);
 		break;
+	case BPF_CGROUP_INET4_BIND:
+	case BPF_CGROUP_INET6_BIND:
+                prog = bpf_prog_get_type(attr->attach_bpf_fd,
+                                         BPF_PROG_TYPE_CGROUP_SOCK_ADDR);
+                if (IS_ERR(prog))
+                        return PTR_ERR(prog);
+
+                cgrp = cgroup_get_from_fd(attr->target_fd);
+                if (IS_ERR(cgrp)) {
+                        bpf_prog_put(prog);
+                        return PTR_ERR(cgrp);
+                }
+
+                ret = cgroup_bpf_attach(cgrp, prog, attr->attach_type,
+                                        attr->attach_flags);
+                if (ret)
+                        bpf_prog_put(prog);
+                cgroup_put(cgrp);
+                break;
 	default:
 		return -EINVAL;
 	}
