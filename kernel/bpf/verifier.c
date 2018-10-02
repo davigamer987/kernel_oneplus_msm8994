@@ -792,6 +792,12 @@ static int check_ctx_access(struct bpf_verifier_env *env, int off, int size,
 	return -EACCES;
 }
 
+static int check_sock_access(struct bpf_verifier_env *env, int off, int size,
+			     enum bpf_access_type t, enum bpf_reg_type *reg_type)
+{
+	return 0;
+}
+
 static bool __is_pointer_value(bool allow_ptr_leaks,
 			       const struct bpf_reg_state *reg)
 {
@@ -993,7 +999,14 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 		if (!err && t == BPF_READ && value_regno >= 0)
 			mark_reg_unknown_value_and_range(state->regs,
 							 value_regno);
-	} else {
+	} else if (type_is_sk_pointer(state->regs[regno].type)) {
+		if (t == BPF_WRITE) {
+			return -EACCES;
+		}
+		err = check_sock_access(env, regno, off, size, &state->regs[regno].type);
+		if (!err && value_regno >= 0)
+			mark_reg_unknown_value_and_range(state->regs, value_regno);
+        } else {
 		verbose("R%d invalid mem access '%s', '%d'\n",
 			regno, reg_type_str[reg->type], reg->type);
 		return -EACCES;
@@ -3129,6 +3142,36 @@ static int ext_analyzer_insn_hook(struct bpf_verifier_env *env,
 	return env->analyzer_ops->insn_hook(env, insn_idx, prev_insn_idx);
 }
 
+/* Return true if it's OK to have the same insn return a different type. */
+static bool reg_type_mismatch_ok(enum bpf_reg_type type)
+{
+	switch (type) {
+	case PTR_TO_CTX:
+	case PTR_TO_SOCKET:
+	case PTR_TO_SOCKET_OR_NULL:
+		return false;
+	default:
+		return true;
+	}
+}
+/* If an instruction was previously used with particular pointer types, then we
+ * need to be careful to avoid cases such as the below, where it may be ok
+ * for one branch accessing the pointer, but not ok for the other branch:
+ *
+ * R1 = sock_ptr
+ * goto X;
+ * ...
+ * R1 = some_other_valid_ptr;
+ * goto X;
+ * ...
+ * R2 = *(u32 *)(R1 + 0);
+ */
+static bool reg_type_mismatch(enum bpf_reg_type src, enum bpf_reg_type prev)
+{
+	return src != prev && (!reg_type_mismatch_ok(src) ||
+			       !reg_type_mismatch_ok(prev));
+}
+
 static int do_check(struct bpf_verifier_env *env)
 {
 	struct bpf_verifier_state *state = &env->cur_state;
@@ -3244,10 +3287,7 @@ static int do_check(struct bpf_verifier_env *env)
 				 * save type to validate intersecting paths
 				 */
 				*prev_src_type = src_reg_type;
-
-			} else if (src_reg_type != *prev_src_type &&
-				   (src_reg_type == PTR_TO_CTX ||
-				    *prev_src_type == PTR_TO_CTX)) {
+			} else if (reg_type_mismatch(src_reg_type, *prev_src_type)) {
 				/* ABuser program is trying to use the same insn
 				 * dst_reg = *(u32*) (src_reg + off)
 				 * with different pointer types:
@@ -3292,9 +3332,7 @@ static int do_check(struct bpf_verifier_env *env)
 
 			if (*prev_dst_type == NOT_INIT) {
 				*prev_dst_type = dst_reg_type;
-			} else if (dst_reg_type != *prev_dst_type &&
-				   (dst_reg_type == PTR_TO_CTX ||
-				    *prev_dst_type == PTR_TO_CTX)) {
+			} else if (reg_type_mismatch(dst_reg_type, *prev_dst_type)) {
 				verbose("same insn cannot be used with different pointers\n");
 				return -EINVAL;
 			}
