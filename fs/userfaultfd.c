@@ -1516,7 +1516,7 @@ static long userfaultfd_ioctl(struct file *file, unsigned cmd,
 }
 
 #ifdef CONFIG_PROC_FS
-static void userfaultfd_show_fdinfo(struct seq_file *m, struct file *f)
+static int userfaultfd_show_fdinfo(struct seq_file *m, struct file *f)
 {
 	struct userfaultfd_ctx *ctx = f->private_data;
 	wait_queue_t *wq;
@@ -1543,6 +1543,7 @@ static void userfaultfd_show_fdinfo(struct seq_file *m, struct file *f)
 	seq_printf(m, "pending:\t%lu\ntotal:\t%lu\nAPI:\t%Lx:%x:%Lx\n",
 		   pending, total, UFFD_API, UFFD_API_FEATURES,
 		   UFFD_API_IOCTLS|UFFD_API_RANGE_IOCTLS);
+	return 0;
 }
 #endif
 
