@@ -502,7 +502,7 @@ SYSCALL_DEFINE5(mremap, unsigned long, addr, unsigned long, old_len,
 	if (flags & MREMAP_FIXED) {
 		if (flags & MREMAP_MAYMOVE)
 			ret = mremap_to(addr, old_len, new_addr, new_len,
-					&locked);
+					&locked, &uf);
 		goto out;
 	}
 
