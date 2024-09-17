@@ -13,6 +13,7 @@
 #include <linux/atomic.h>
 #include <linux/debug_locks.h>
 #include <linux/mm_types.h>
+#include <linux/sched.h>
 #include <linux/range.h>
 #include <linux/pfn.h>
 #include <linux/bit_spinlock.h>
@@ -1176,6 +1177,12 @@ static inline void update_hiwater_rss(struct mm_struct *mm)
 		(mm)->hiwater_rss = _rss;
 }
 
+static inline void reset_mm_hiwater_rss(struct mm_struct *mm)
+{
+	mm->hiwater_rss = get_mm_rss(mm);
+}
+
+
 static inline void update_hiwater_vm(struct mm_struct *mm)
 {
 	if (mm->hiwater_vm < mm->total_vm)
@@ -1959,7 +1966,7 @@ static inline void membarrier_mm_sync_core_before_usermode(struct mm_struct *mm)
 
 static inline void membarrier_execve(struct task_struct *t)
 {
-//	atomic_set(&t->mm->membarrier_state, 0);
+	atomic_set(&t->mm->membarrier_state, 0);
 }
 #else
 static inline void membarrier_mm_sync_core_before_usermode(struct mm_struct *mm)
