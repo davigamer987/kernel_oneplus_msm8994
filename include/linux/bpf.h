@@ -480,4 +480,30 @@ extern const struct bpf_func_proto bpf_ringbuf_query_proto;
 void bpf_user_rnd_init_once(void);
 u64 bpf_user_rnd_u32(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
 
+#ifdef CONFIG_INET
+bool bpf_tcp_sock_is_valid_access(int off, int size, enum bpf_access_type type,
+				    enum bpf_reg_type *reg_type);
+u32 bpf_tcp_sock_convert_ctx_access(enum bpf_access_type type,
+                                    int dst_reg, int src_reg,
+                                    int ctx_off,
+                                    struct bpf_insn *insn_buf,
+                                    struct bpf_prog *prog);
+#else
+static inline bool bpf_tcp_sock_is_valid_access(int off, int size,
+						enum bpf_access_type type,
+						struct bpf_insn_access_aux *info)
+{
+	return false;
+}
+
+static inline u32 bpf_tcp_sock_convert_ctx_access(enum bpf_access_type type,
+						  const struct bpf_insn *si,
+						  struct bpf_insn *insn_buf,
+						  struct bpf_prog *prog,
+						  u32 *target_size)
+{
+	return 0;
+}
+#endif /* CONFIG_INET */
+
 #endif /* _LINUX_BPF_H */
