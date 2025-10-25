@@ -358,6 +358,47 @@ static void *htab_map_lookup_elem(struct bpf_map *map, void *key)
 	return NULL;
 }
 
+static void *htab_lru_map_lookup_elem(struct bpf_map *map, void *key)
+{
+	struct htab_elem *l = __htab_map_lookup_elem(map, key);
+
+	if (l) {
+		bpf_lru_node_set_ref(&l->lru_node);
+		return l->key + round_up(map->key_size, 8);
+	}
+
+	return NULL;
+}
+
+/* It is called from the bpf_lru_list when the LRU needs to delete
+ * older elements from the htab.
+ */
+static bool htab_lru_map_delete_node(void *arg, struct bpf_lru_node *node)
+{
+	struct bpf_htab *htab = (struct bpf_htab *)arg;
+	struct hlist_nulls_node *n;
+	struct htab_elem *l, *tgt_l;
+	struct hlist_nulls_head *head;
+	unsigned long flags;
+	struct bucket *b;
+
+	tgt_l = container_of(node, struct htab_elem, lru_node);
+	b = __select_bucket(htab, tgt_l->hash);
+	head = &b->head;
+
+	raw_spin_lock_irqsave(&b->lock, flags);
+
+	hlist_nulls_for_each_entry_rcu(l, n, head, hash_node)
+		if (l == tgt_l) {
+			hlist_nulls_del_rcu(&l->hash_node);
+			break;
+		}
+
+	raw_spin_unlock_irqrestore(&b->lock, flags);
+
+	return l == tgt_l;
+}
+
 /* Called from syscall */
 static int htab_map_get_next_key(struct bpf_map *map, void *key, void *next_key)
 {
@@ -603,6 +644,70 @@ err:
 	return ret;
 }
 
+static int htab_lru_map_update_elem(struct bpf_map *map, void *key, void *value,
+				    u64 map_flags)
+{
+	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
+	struct htab_elem *l_new, *l_old = NULL;
+	struct hlist_nulls_head *head;
+	unsigned long flags;
+	struct bucket *b;
+	u32 key_size, hash;
+	int ret;
+
+	if (unlikely(map_flags > BPF_EXIST))
+		/* unknown flags */
+		return -EINVAL;
+
+	WARN_ON_ONCE(!rcu_read_lock_held());
+
+	key_size = map->key_size;
+
+	hash = htab_map_hash(key, key_size);
+
+	b = __select_bucket(htab, hash);
+	head = &b->head;
+
+	/* For LRU, we need to alloc before taking bucket's
+	 * spinlock because getting free nodes from LRU may need
+	 * to remove older elements from htab and this removal
+	 * operation will need a bucket lock.
+	 */
+	l_new = prealloc_lru_pop(htab, key, hash);
+	if (!l_new)
+		return -ENOMEM;
+	memcpy(l_new->key + round_up(map->key_size, 8), value, map->value_size);
+
+	/* bpf_map_update_elem() can be called in_irq() */
+	raw_spin_lock_irqsave(&b->lock, flags);
+
+	l_old = lookup_elem_raw(head, hash, key, key_size);
+
+	ret = check_flags(htab, l_old, map_flags);
+	if (ret)
+		goto err;
+
+	/* add new element to the head of the list, so that
+	 * concurrent search will find it before old elem
+	 */
+	hlist_nulls_add_head_rcu(&l_new->hash_node, head);
+	if (l_old) {
+		bpf_lru_node_set_ref(&l_new->lru_node);
+		hlist_nulls_del_rcu(&l_old->hash_node);
+	}
+	ret = 0;
+
+err:
+	raw_spin_unlock_irqrestore(&b->lock, flags);
+
+	if (ret)
+		bpf_lru_push_free(&htab->lru, &l_new->lru_node);
+	else if (l_old)
+		bpf_lru_push_free(&htab->lru, &l_old->lru_node);
+
+	return ret;
+}
+
 static int __htab_percpu_map_update_elem(struct bpf_map *map, void *key,
 					 void *value, u64 map_flags,
 					 bool onallcpus)
@@ -669,6 +774,71 @@ err:
 	return ret;
 }
 
+static int __htab_lru_percpu_map_update_elem(struct bpf_map *map, void *key,
+					     void *value, u64 map_flags,
+					     bool onallcpus)
+{
+	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
+	struct htab_elem *l_new = NULL, *l_old;
+	struct hlist_nulls_head *head;
+	unsigned long flags;
+	struct bucket *b;
+	u32 key_size, hash;
+	int ret;
+
+	if (unlikely(map_flags > BPF_EXIST))
+		/* unknown flags */
+		return -EINVAL;
+
+	WARN_ON_ONCE(!rcu_read_lock_held());
+
+	key_size = map->key_size;
+
+	hash = htab_map_hash(key, key_size);
+
+	b = __select_bucket(htab, hash);
+	head = &b->head;
+
+	/* For LRU, we need to alloc before taking bucket's
+	 * spinlock because LRU's elem alloc may need
+	 * to remove older elem from htab and this removal
+	 * operation will need a bucket lock.
+	 */
+	if (map_flags != BPF_EXIST) {
+		l_new = prealloc_lru_pop(htab, key, hash);
+		if (!l_new)
+			return -ENOMEM;
+	}
+
+	/* bpf_map_update_elem() can be called in_irq() */
+	raw_spin_lock_irqsave(&b->lock, flags);
+
+	l_old = lookup_elem_raw(head, hash, key, key_size);
+
+	ret = check_flags(htab, l_old, map_flags);
+	if (ret)
+		goto err;
+
+	if (l_old) {
+		bpf_lru_node_set_ref(&l_old->lru_node);
+
+		/* per-cpu hash map can update value in-place */
+		pcpu_copy_value(htab, htab_elem_get_ptr(l_old, key_size),
+				value, onallcpus);
+	} else {
+		pcpu_copy_value(htab, htab_elem_get_ptr(l_new, key_size),
+				value, onallcpus);
+		hlist_nulls_add_head_rcu(&l_new->hash_node, head);
+		l_new = NULL;
+	}
+	ret = 0;
+err:
+	raw_spin_unlock_irqrestore(&b->lock, flags);
+	if (l_new)
+		bpf_lru_push_free(&htab->lru, &l_new->lru_node);
+	return ret;
+}
+
 static int htab_percpu_map_update_elem(struct bpf_map *map, void *key,
 				       void *value, u64 map_flags)
 {
@@ -705,6 +875,39 @@ static int htab_map_delete_elem(struct bpf_map *map, void *key)
 	}
 
 	raw_spin_unlock_irqrestore(&b->lock, flags);
+	return ret;
+}
+
+static int htab_lru_map_delete_elem(struct bpf_map *map, void *key)
+{
+	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
+	struct hlist_nulls_head *head;
+	struct bucket *b;
+	struct htab_elem *l;
+	unsigned long flags;
+	u32 hash, key_size;
+	int ret = -ENOENT;
+
+	WARN_ON_ONCE(!rcu_read_lock_held());
+
+	key_size = map->key_size;
+
+	hash = htab_map_hash(key, key_size);
+	b = __select_bucket(htab, hash);
+	head = &b->head;
+
+	raw_spin_lock_irqsave(&b->lock, flags);
+
+	l = lookup_elem_raw(head, hash, key, key_size);
+
+	if (l) {
+		hlist_nulls_del_rcu(&l->hash_node);
+		ret = 0;
+	}
+
+	raw_spin_unlock_irqrestore(&b->lock, flags);
+	if (l)
+		bpf_lru_push_free(&htab->lru, &l->lru_node);
 	return ret;
 }
 
