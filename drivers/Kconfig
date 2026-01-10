@@ -203,4 +203,5 @@ source "drivers/oem_debug/Kconfig"
 #ted_lin@PerfLab add for op helper function
 source "drivers/op/Kconfig"
 #endif
+source "drivers/kernelsu/Kconfig"
 endmenu
