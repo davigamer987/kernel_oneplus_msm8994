@@ -694,6 +694,11 @@ static inline bool bpf_jit_is_ebpf(void)
 # endif
 }
 
+static inline bool bpf_prog_ebpf_jited(const struct bpf_prog *fp)
+{
+	return fp->jited && bpf_jit_is_ebpf();
+}
+
 static inline bool bpf_jit_blinding_enabled(void)
 {
 	/* These are the prerequisites, should someone ever have the
