@@ -96,6 +96,12 @@ enum bpf_map_type {
 	BPF_MAP_TYPE_LRU_HASH,
 	BPF_MAP_TYPE_LRU_PERCPU_HASH,
 	BPF_MAP_TYPE_LPM_TRIE,
+	BPF_MAP_TYPE_ARRAY_OF_MAPS,
+	BPF_MAP_TYPE_HASH_OF_MAPS,
+	BPF_MAP_TYPE_DEVMAP,
+	BPF_MAP_TYPE_DEVMAP_HASH = BPF_MAP_TYPE_DEVMAP + 11,
+	BPF_MAP_TYPE_SK_STORAGE = 21,
+	BPF_MAP_TYPE_RINGBUF = 27,
 };
 
 enum bpf_prog_type {
@@ -612,6 +618,130 @@ enum bpf_func_id {
 	 */
 	BPF_FUNC_get_socket_uid,
 
+	/**
+	 * int bpf_skb_adjust_room(skb, len_diff, mode, flags)
+	 *     Grow or shrink room in sk_buff.
+	 *     @skb: pointer to skb
+	 *     @len_diff: (signed) amount of room to grow/shrink
+	 *     @mode: operation mode (enum bpf_adj_room_mode)
+	 *     @flags: reserved for future use
+	 *     Return: 0 on success or negative error code
+	 */
+	BPF_FUNC_skb_adjust_room = 50,
+
+	/**
+	 * int bpf_bind(ctx, addr, addr_len)
+	 *     Bind socket to address. Only binding to IP is supported, no port can be
+	 *     set in addr.
+	 *     @ctx: pointer to context of type bpf_sock_addr
+	 *     @addr: pointer to struct sockaddr to bind socket to
+	 *     @addr_len: length of sockaddr structure
+	 *     Return: 0 on success or negative error code
+	 */
+        BPF_FUNC_bind = 64,
+
+	/**
+	 * int skb_load_bytes_relative(const struct sk_buff *skb, u32 offset, void *to, u32 len, u32 start_header)
+	 * 	Description
+	 * 		This helper is similar to **bpf_skb_load_bytes**\ () in that
+	 * 		it provides an easy way to load *len* bytes from *offset*
+	 * 		from the packet associated to *skb*, into the buffer pointed
+	 * 		by *to*. The difference to **bpf_skb_load_bytes**\ () is that
+	 * 		a fifth argument *start_header* exists in order to select a
+	 * 		base offset to start from. *start_header* can be one of:
+	 *
+	 * 		**BPF_HDR_START_MAC**
+	 * 			Base offset to load data from is *skb*'s mac header.
+	 * 		**BPF_HDR_START_NET**
+	 * 			Base offset to load data from is *skb*'s network header.
+	 *
+	 * 		In general, "direct packet access" is the preferred method to
+	 * 		access packet data, however, this helper is in particular useful
+	 * 		in socket filters where *skb*\ **->data** does not always point
+	 * 		to the start of the mac header and where "direct packet access"
+	 * 		is not available.
+	 *
+	 * 	Return
+	 * 		0 on success, or a negative error in case of failure.
+	 *
+	 */
+	BPF_FUNC_skb_load_bytes_relative = 68,
+
+
+	BPF_FUNC_sk_fullsock = 95,
+
+	/**
+	 * struct bpf_tcp_sock *bpf_tcp_sock(struct bpf_sock *sk)
+	 *	Description
+	 *		This helper gets a **struct bpf_tcp_sock** pointer from a
+	 *		**struct bpf_sock** pointer.
+	 *
+	 *	Return
+	 *		A **struct bpf_tcp_sock** pointer on success, or NULL in
+	 *		case of failure.
+	 */
+	BPF_FUNC_tcp_sock = 96,
+
+	/**
+	 * void *bpf_sk_storage_get(struct bpf_map *map, struct bpf_sock *sk, void *value, u64 flags)
+	 *	Description
+	 *		Get a bpf-local-storage from a sk.
+	 *
+	 *		Logically, it could be thought of getting the value from
+	 *		a *map* with *sk* as the **key**.  From this
+	 *		perspective,  the usage is not much different from
+	 *		**bpf_map_lookup_elem(map, &sk)** except this
+	 *		helper enforces the key must be a **bpf_fullsock()**
+	 *		and the map must be a BPF_MAP_TYPE_SK_STORAGE also.
+	 *
+	 *		Underneath, the value is stored locally at *sk* instead of
+	 *		the map.  The *map* is used as the bpf-local-storage **type**.
+	 *		The bpf-local-storage **type** (i.e. the *map*) is searched
+	 *		against all bpf-local-storages residing at sk.
+	 *
+	 *		An optional *flags* (BPF_SK_STORAGE_GET_F_CREATE) can be
+	 *		used such that a new bpf-local-storage will be
+	 *		created if one does not exist.  *value* can be used
+	 *		together with BPF_SK_STORAGE_GET_F_CREATE to specify
+	 *		the initial value of a bpf-local-storage.  If *value* is
+	 *		NULL, the new bpf-local-storage will be zero initialized.
+	 *	Return
+	 *		A bpf-local-storage pointer is returned on success.
+	 *
+	 *		**NULL** if not found or there was an error in adding
+	 *		a new bpf-local-storage.
+	 */
+        BPF_FUNC_sk_storage_get = 107,
+
+	/**
+	 * int bpf_sk_storage_delete(struct bpf_map *map, struct bpf_sock *sk)
+	 *	Description
+	 *		Delete a bpf-local-storage from a sk.
+	 *	Return
+	 *		0 on success.
+	 *
+	 *		**-ENOENT** if the bpf-local-storage cannot be found.
+	 */
+	BPF_FUNC_sk_storage_delete,
+
+	/**
+	 * u64 bpf_ktime_get_boot_ns(void)
+	 * 	Description
+	 * 		Return the time elapsed since system boot, in nanoseconds.
+	 * 		Does include the time the system was suspended.
+	 * 		See: clock_gettime(CLOCK_BOOTTIME)
+	 * 	Return
+	 * 		Current *ktime*.
+	 */
+	BPF_FUNC_ktime_get_boot_ns = 125,
+
+
+	BPF_FUNC_ringbuf_output = 130,
+	BPF_FUNC_ringbuf_reserve = 131,
+	BPF_FUNC_ringbuf_submit = 132,
+	BPF_FUNC_ringbuf_discard = 133,
+	BPF_FUNC_ringbuf_query = 134,
+
 	__BPF_FUNC_MAX_ID,
 };
 
@@ -651,6 +781,83 @@ enum bpf_func_id {
 #define BPF_F_CURRENT_CPU		BPF_F_INDEX_MASK
 /* BPF_FUNC_perf_event_output for sk_buff input context. */
 #define BPF_F_CTXLEN_MASK		(0xfffffULL << 32)
+
+/* BPF_FUNC_sk_storage_get flags */
+#define BPF_SK_STORAGE_GET_F_CREATE	(1ULL << 0)
+
+/* BPF_FUNC_bpf_ringbuf_commit, BPF_FUNC_bpf_ringbuf_discard, and
+ * BPF_FUNC_bpf_ringbuf_output flags.
+ */
+enum {
+	BPF_RB_NO_WAKEUP		= (1ULL << 0),
+	BPF_RB_FORCE_WAKEUP		= (1ULL << 1),
+};
+
+/* BPF_FUNC_bpf_ringbuf_query flags */
+enum {
+	BPF_RB_AVAIL_DATA = 0,
+	BPF_RB_RING_SIZE = 1,
+	BPF_RB_CONS_POS = 2,
+	BPF_RB_PROD_POS = 3,
+};
+
+/* BPF ring buffer constants */
+enum {
+	BPF_RINGBUF_BUSY_BIT		= (1U << 31),
+	BPF_RINGBUF_DISCARD_BIT		= (1U << 30),
+	BPF_RINGBUF_HDR_SZ		= 8,
+};
+
+/* Mode for BPF_FUNC_skb_adjust_room helper. */
+enum bpf_adj_room_mode {
+	BPF_ADJ_ROOM_NET,
+};
+
+/* Mode for BPF_FUNC_skb_load_bytes_relative helper. */
+enum bpf_hdr_start_off {
+	BPF_HDR_START_MAC,
+	BPF_HDR_START_NET,
+};
+
+#define __bpf_md_ptr(type, name)	\
+union {					\
+	type name;			\
+	__u64 :64;			\
+} __attribute__((aligned(8)))
+
+struct bpf_flow_keys {
+	__u16	nhoff;
+	__u16	thoff;
+	__u16	addr_proto;			/* ETH_P_* of valid addrs */
+	__u8	is_frag;
+	__u8	is_first_frag;
+	__u8	is_encap;
+	__u8	ip_proto;
+	__be16	n_proto;
+	__be16	sport;
+	__be16	dport;
+	union {
+		struct {
+			__be32	ipv4_src;
+			__be32	ipv4_dst;
+		};
+		struct {
+			__u32	ipv6_src[4];	/* in6_addr; network order */
+			__u32	ipv6_dst[4];	/* in6_addr; network order */
+		};
+	};
+	__u32	flags;
+	__be32	flow_label;
+};
+
+struct bpf_sock {
+	__u32 bound_dev_if;
+	__u32 family;
+	__u32 type;
+	__u32 protocol;
+	__u32 mark;
+	__u32 priority;
+};
 
 /* user accessible mirror of in-kernel sk_buff.
  * new fields can only be added to the end of this structure
