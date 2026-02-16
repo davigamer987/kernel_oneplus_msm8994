@@ -436,6 +436,17 @@ static int array_map_check_btf(const struct bpf_map *map, const struct btf *btf,
 	return 0;
 }
 
+int array_map_mmap(struct bpf_map *map, struct vm_area_struct *vma)
+{
+	struct bpf_array *array = container_of(map, struct bpf_array, map);
+	pgoff_t pgoff = PAGE_ALIGN(sizeof(*array)) >> PAGE_SHIFT;
+
+	if (!(map->map_flags & BPF_F_MMAPABLE))
+		return -EINVAL;
+
+	return remap_vmalloc_range(vma, array_map_vmalloc_addr(array), pgoff);
+}
+
 static const struct bpf_map_ops array_ops = {
 	.map_alloc = array_map_alloc,
 	.map_free = array_map_free,
