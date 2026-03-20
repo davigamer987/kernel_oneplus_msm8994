@@ -999,6 +999,24 @@ struct __sk_buff {
 	__u32 tc_classid;
 	__u32 data;
 	__u32 data_end;
+
+	__u32 napi_id;
+
+	/* Accessed by BPF_PROG_TYPE_sk_skb types from here to ... */
+	__u32 family;
+	__u32 remote_ip4;	/* Stored in network byte order */
+	__u32 local_ip4;	/* Stored in network byte order */
+	__u32 remote_ip6[4];	/* Stored in network byte order */
+	__u32 local_ip6[4];	/* Stored in network byte order */
+	__u32 remote_port;	/* Stored in network byte order */
+	__u32 local_port;	/* stored in host byte order */
+	/* ... here. */
+
+	__u32 data_meta;
+	__bpf_md_ptr(struct bpf_flow_keys *, flow_keys);
+	__u64 tstamp;
+	__u32 wire_len;
+	__u32 gso_segs;
 };
 
 struct bpf_tunnel_key {
@@ -1088,13 +1106,6 @@ struct bpf_sock_addr {
 				 * Stored in network byte order.
 				 */
 };
-
-
-#define __bpf_md_ptr(type, name)	\
-union {					\
-	type name;			\
-	__u64 :64;			\
-} __attribute__((aligned(8)))
 
 struct bpf_sockopt {
 	__bpf_md_ptr(struct bpf_sock *, sk);
