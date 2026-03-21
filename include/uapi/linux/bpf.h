@@ -1031,10 +1031,6 @@ struct bpf_tunnel_key {
 	__u32 tunnel_label;
 };
 
-struct bpf_sock {
-	__u32 bound_dev_if;
-};
-
 /* User return codes for XDP prog type.
  * A valid XDP program must return one of these defined values. All other
  * return codes are reserved for future use. Unknown return codes will result
