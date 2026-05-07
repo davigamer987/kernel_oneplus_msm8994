@@ -420,12 +420,13 @@ static inline bool d_mountpoint(struct dentry *dentry)
 	return dentry->d_flags & DCACHE_MOUNTED;
 }
 
-static inline bool d_is_su(const struct dentry *dentry)
+static inline bool d_need_lookup(struct dentry *dentry)
 {
-	return dentry &&
-	       dentry->d_name.len == 2 &&
-	       !memcmp(dentry->d_name.name, "su", 2);
+	return dentry->d_flags & DCACHE_NEED_LOOKUP;
 }
+
+extern void d_clear_need_lookup(struct dentry *dentry);
+
 
 static inline bool d_is_negative(const struct dentry *dentry)
 {
