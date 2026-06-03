@@ -780,6 +780,12 @@ static bool is_pointer_value(struct bpf_verifier_env *env, int regno)
 	return __is_pointer_value(env->allow_ptr_leaks, &env->cur_state.regs[regno]);
 }
 
+static bool type_is_sk_pointer(enum bpf_reg_type type)
+{
+	return type == PTR_TO_SOCKET || type == PTR_TO_SOCKET_OR_NULL ||
+		type == PTR_TO_SOCK_COMMON || type == PTR_TO_SOCK_COMMON_OR_NULL;
+}
+
 static bool is_ctx_reg(struct bpf_verifier_env *env, int regno)
 {
 	const struct bpf_reg_state *reg = &env->cur_state.regs[regno];
@@ -1114,9 +1120,17 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 	}
 
 	if (arg_type == ARG_PTR_TO_MAP_KEY ||
-	    arg_type == ARG_PTR_TO_MAP_VALUE) {
+	    arg_type == ARG_PTR_TO_MAP_VALUE ||
+	    arg_type == ARG_PTR_TO_MAP_VALUE_OR_NULL) {
 		expected_type = PTR_TO_STACK;
-		if (type != PTR_TO_PACKET && type != expected_type)
+
+		if (type == CONST_IMM && reg->imm == 0 &&
+		    arg_type == ARG_PTR_TO_ALLOC_MEM_OR_NULL)
+			/* final test in check_stack_boundary() */;
+		else if (type == CONST_IMM && reg->imm == 0 &&
+		    arg_type == ARG_PTR_TO_MAP_VALUE_OR_NULL)
+			/* final test in check_stack_boundary() */;
+		else if (type != PTR_TO_PACKET && type != expected_type)
 			goto err_type;
 	} else if (arg_type == ARG_CONST_STACK_SIZE ||
 		   arg_type == ARG_CONST_STACK_SIZE_OR_ZERO ||
@@ -1131,6 +1145,15 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 	} else if (arg_type == ARG_PTR_TO_CTX) {
 		expected_type = PTR_TO_CTX;
 		if (type != expected_type)
+			goto err_type;
+	} else if (arg_type == ARG_PTR_TO_SOCK_COMMON) {
+		expected_type = PTR_TO_SOCK_COMMON;
+		/* Any sk pointer can be ARG_PTR_TO_SOCK_COMMON */
+		if (!type_is_sk_pointer(type))
+			goto err_type;
+	} else if (arg_type == ARG_PTR_TO_SOCKET) {
+		expected_type = PTR_TO_SOCKET;
+		if (type != expected_type && type != PTR_TO_CTX)
 			goto err_type;
 	} else if (arg_type == ARG_PTR_TO_STACK ||
 		   arg_type == ARG_PTR_TO_RAW_STACK) {
@@ -1198,6 +1221,12 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 		if (type == PTR_TO_PACKET)
 			err = check_packet_access(env, regno, 0,
 						  meta->map_ptr->value_size);
+		else if (arg_type == ARG_PTR_TO_MAP_VALUE_OR_NULL &&
+			regs[regno].type == CONST_IMM &&
+			regs[regno].imm  == 0)
+			err = check_stack_boundary(env, regno,
+						   0,
+						   true, NULL);
 		else
 			err = check_stack_boundary(env, regno,
 						   meta->map_ptr->value_size,
