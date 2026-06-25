@@ -512,6 +512,12 @@ static inline bool cgroup_on_dfl(const struct cgroup *cgrp)
 {
 	return cgrp->root == &cgrp_dfl_root;
 }
+
+static inline bool cgroup_on_dfl_or_cpuset_v2_mode(const struct cgroup *cgrp)
+{
+	return cgroup_on_dfl(cgrp) ||
+	       (cgrp->root->flags & CGRP_ROOT_CPUSET_V2_MODE);
+}
 /*
  * cgroup_is_descendant - test ancestry
  * @cgrp: the cgroup to be tested

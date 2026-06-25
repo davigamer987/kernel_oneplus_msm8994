@@ -1579,6 +1579,8 @@ static int cgroup_show_options(struct seq_file *seq,
 		seq_puts(seq, ",noprefix");
 	if (root->flags & CGRP_ROOT_XATTR)
 		seq_puts(seq, ",xattr");
+	if (root->flags & CGRP_ROOT_CPUSET_V2_MODE)
+		seq_puts(seq, ",cpuset_v2_mode");
 
 	spin_lock(&release_agent_path_lock);
 	if (strlen(root->release_agent_path))
@@ -1636,6 +1638,10 @@ static int parse_cgroupfs_options(char *data, struct cgroup_sb_opts *opts)
 		}
 		if (!strcmp(token, "noprefix")) {
 			opts->flags |= CGRP_ROOT_NOPREFIX;
+			continue;
+		}
+		if (!strcmp(token, "cpuset_v2_mode")) {
+			opts->flags |= CGRP_ROOT_CPUSET_V2_MODE;
 			continue;
 		}
 		if (!strcmp(token, "clone_children")) {
@@ -1725,6 +1731,14 @@ static int parse_cgroupfs_options(char *data, struct cgroup_sb_opts *opts)
 	 * the cpuset subsystem.
 	 */
 	if ((opts->flags & CGRP_ROOT_NOPREFIX) && (opts->subsys_mask & mask))
+		return -EINVAL;
+
+	/*
+	 * Option cpuset_v2_mode is only applicable to the cpuset
+	 * controller.
+	 */
+	if ((opts->flags & CGRP_ROOT_CPUSET_V2_MODE) &&
+	    (opts->subsys_mask & mask))
 		return -EINVAL;
 
 	/* Can't specify "none" and some subsystems */
@@ -6834,4 +6848,3 @@ struct cgroup_subsys debug_cgrp_subsys = {
 	.legacy_cftypes = debug_files,
 };
 #endif /* CONFIG_CGROUP_DEBUG */
-

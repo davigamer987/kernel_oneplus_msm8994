@@ -1392,9 +1392,9 @@ static int cpuset_can_attach(struct cgroup_taskset *tset)
 
 	mutex_lock(&cpuset_mutex);
 
-	/* allow moving tasks into an empty cpuset if on default hierarchy */
+	/* allow moving tasks into an empty cpuset in v2 mode */
 	ret = -ENOSPC;
-	if (!cgroup_on_dfl(css->cgroup) &&
+	if (!cgroup_on_dfl_or_cpuset_v2_mode(css->cgroup) &&
 	    (cpumask_empty(cs->cpus_allowed) || nodes_empty(cs->mems_allowed)))
 		goto out_unlock;
 
@@ -2066,7 +2066,7 @@ static void cpuset_hotplug_update_tasks(struct cpuset *cs)
 	static cpumask_t diff, new_allowed;
 	static nodemask_t off_mems;
 	bool is_empty;
-	bool on_dfl = cgroup_on_dfl(cs->css.cgroup);
+	bool on_dfl = cgroup_on_dfl_or_cpuset_v2_mode(cs->css.cgroup);
 
 retry:
 	wait_event(cpuset_attach_wq, cs->attach_in_progress == 0);
