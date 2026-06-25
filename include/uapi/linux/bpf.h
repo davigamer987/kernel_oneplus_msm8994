@@ -335,20 +335,6 @@ union bpf_attr {
 		__u32		btf_log_level;
 	};
 
-	struct { /* anonymous struct used by BPF_OBJ_GET_INFO_BY_FD */
-		__u32		bpf_fd;
-		__u32		info_len;
-		__aligned_u64	info;
-	} info;
-
-	struct { /* anonymous struct used by BPF_PROG_QUERY command */
-		__u32		target_fd;	/* container object to query */
-		__u32		attach_type;
-		__u32		query_flags;
-		__u32		attach_flags;
-		__aligned_u64	prog_ids;
-		__u32		prog_cnt;
-	} query;
 } __attribute__((aligned(8)));
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
@@ -802,48 +788,6 @@ enum bpf_func_id {
 	BPF_FUNC_sk_storage_delete,
 
 	/**
-	 * void *bpf_sk_storage_get(struct bpf_map *map, struct bpf_sock *sk, void *value, u64 flags)
-	 *	Description
-	 *		Get a bpf-local-storage from a sk.
-	 *
-	 *		Logically, it could be thought of getting the value from
-	 *		a *map* with *sk* as the **key**.  From this
-	 *		perspective,  the usage is not much different from
-	 *		**bpf_map_lookup_elem(map, &sk)** except this
-	 *		helper enforces the key must be a **bpf_fullsock()**
-	 *		and the map must be a BPF_MAP_TYPE_SK_STORAGE also.
-	 *
-	 *		Underneath, the value is stored locally at *sk* instead of
-	 *		the map.  The *map* is used as the bpf-local-storage **type**.
-	 *		The bpf-local-storage **type** (i.e. the *map*) is searched
-	 *		against all bpf-local-storages residing at sk.
-	 *
-	 *		An optional *flags* (BPF_SK_STORAGE_GET_F_CREATE) can be
-	 *		used such that a new bpf-local-storage will be
-	 *		created if one does not exist.  *value* can be used
-	 *		together with BPF_SK_STORAGE_GET_F_CREATE to specify
-	 *		the initial value of a bpf-local-storage.  If *value* is
-	 *		NULL, the new bpf-local-storage will be zero initialized.
-	 *	Return
-	 *		A bpf-local-storage pointer is returned on success.
-	 *
-	 *		**NULL** if not found or there was an error in adding
-	 *		a new bpf-local-storage.
-	 */
-        BPF_FUNC_sk_storage_get = 107,
-
-	/**
-	 * int bpf_sk_storage_delete(struct bpf_map *map, struct bpf_sock *sk)
-	 *	Description
-	 *		Delete a bpf-local-storage from a sk.
-	 *	Return
-	 *		0 on success.
-	 *
-	 *		**-ENOENT** if the bpf-local-storage cannot be found.
-	 */
-	BPF_FUNC_sk_storage_delete,
-
-	/**
 	 * u64 bpf_ktime_get_boot_ns(void)
 	 * 	Description
 	 * 		Return the time elapsed since system boot, in nanoseconds.
@@ -1075,6 +1019,12 @@ struct bpf_map_info {
 	__u32 max_entries;
 	__u32 map_flags;
 	char  name[BPF_OBJ_NAME_LEN];
+} __attribute__((aligned(8)));
+
+struct bpf_btf_info {
+	__aligned_u64 btf;
+	__u32 btf_size;
+	__u32 id;
 } __attribute__((aligned(8)));
 
 /* User bpf_sock_addr struct to access socket fields and sockaddr struct passed
