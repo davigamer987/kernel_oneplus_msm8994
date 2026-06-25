@@ -875,18 +875,18 @@ static int check_ptr_alignment(struct bpf_verifier_env *env,
 	return 0;
 }
 
-/* check whether memory at (regno + off) is accessible for t = (read | write)
- * if t==write, value_regno is a register which value is stored into memory
- * if t==read, value_regno is a register which will receive the value from memory
- * if t==write && value_regno==-1, some unknown value is stored into memory
- * if t==read && value_regno==-1, don't care what we read from memory
- */
 static bool type_is_sk_pointer(enum bpf_reg_type type)
 {
 	return type == PTR_TO_SOCKET || type == PTR_TO_SOCKET_OR_NULL ||
 		type == PTR_TO_SOCK_COMMON || type == PTR_TO_SOCK_COMMON_OR_NULL;
 }
 
+/* check whether memory at (regno + off) is accessible for t = (read | write)
+ * if t==write, value_regno is a register which value is stored into memory
+ * if t==read, value_regno is a register which will receive the value from memory
+ * if t==write && value_regno==-1, some unknown value is stored into memory
+ * if t==read && value_regno==-1, don't care what we read from memory
+ */
 static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regno, int off,
 			    int bpf_size, enum bpf_access_type t,
 			    int value_regno)
@@ -1263,6 +1263,7 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 			err = check_stack_boundary(env, regno,
 						   meta->map_ptr->value_size,
 						   false, NULL);
+
 	} else if (arg_type == ARG_CONST_SIZE ||
 		   arg_type == ARG_CONST_SIZE_OR_ZERO) {
 		bool zero_size_allowed = (arg_type == ARG_CONST_SIZE_OR_ZERO);
@@ -3218,7 +3219,11 @@ static int do_check(struct bpf_verifier_env *env)
 
 		if (verifier_log.level > 1 ||
 		    (verifier_log.level && do_print_state)) {
-			verbose("\nfrom %d to %d:", prev_insn_idx, insn_idx);
+			if (verifier_log.level > 1)
+				verbose("%d:", insn_idx);
+			else
+				verbose("\nfrom %d to %d:",
+					prev_insn_idx, insn_idx);
 			print_verifier_state(&env->cur_state);
 			do_print_state = false;
 		}
@@ -3782,7 +3787,7 @@ static int fixup_bpf_calls(struct bpf_verifier_env *env)
 			bool is64 = BPF_CLASS(insn->code) == BPF_ALU64;
 			struct bpf_insn mask_and_div[] = {
 				BPF_MOV_REG(BPF_CLASS(insn->code), BPF_REG_AX, insn->src_reg),
-				/* Rx div 0 -> 0 */
+				/* [R,W]x div 0 -> 0 */
 				BPF_JMP_IMM(BPF_JEQ, BPF_REG_AX, 0, 2),
 				BPF_RAW_REG(*insn, insn->dst_reg, BPF_REG_AX),
 				BPF_JMP_IMM(BPF_JA, 0, 0, 1),
@@ -3790,9 +3795,10 @@ static int fixup_bpf_calls(struct bpf_verifier_env *env)
 			};
 			struct bpf_insn mask_and_mod[] = {
 				BPF_MOV_REG(BPF_CLASS(insn->code), BPF_REG_AX, insn->src_reg),
-				/* Rx mod 0 -> Rx */
-				BPF_JMP_IMM(BPF_JEQ, BPF_REG_AX, 0, 1),
+				BPF_JMP_IMM(BPF_JEQ, BPF_REG_AX, 0, 1 + (is64 ? 0 : 1)),
 				BPF_RAW_REG(*insn, insn->dst_reg, BPF_REG_AX),
+				BPF_JMP_IMM(BPF_JA, 0, 0, 1),
+				BPF_MOV32_REG(insn->dst_reg, insn->dst_reg),
 			};
 			struct bpf_insn *patchlet;
 
@@ -3802,7 +3808,7 @@ static int fixup_bpf_calls(struct bpf_verifier_env *env)
 				cnt = ARRAY_SIZE(mask_and_div);
 			} else {
 				patchlet = mask_and_mod;
-				cnt = ARRAY_SIZE(mask_and_mod);
+				cnt = ARRAY_SIZE(mask_and_mod) - (is64 ? 2 : 0);
 			}
 
 			new_prog = bpf_patch_insn_data(env, i + delta, patchlet, cnt);
@@ -3931,14 +3937,13 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr)
 		log->len_used = 0;
 
 		ret = -EINVAL;
-		/* log_* values have to be sane */
+		/* log attributes have to be sane */
 		if (log->len_total < 128 || log->len_total > UINT_MAX >> 8 ||
 		    !log->level || !log->ubuf)
 			goto err_unlock;
 
 		ret = -ENOMEM;
 	} else {
-		log->level = 0;
 		log->level = 0;
 	}
 	if (attr->prog_flags & BPF_F_STRICT_ALIGNMENT)
@@ -4046,6 +4051,7 @@ int bpf_analyzer(struct bpf_prog *prog, const struct bpf_ext_analyzer_ops *ops,
 	/* grab the mutex to protect few globals used by verifier */
 	mutex_lock(&bpf_verifier_lock);
 
+	verifier_log.level = 0;
 	env->strict_alignment = false;
 
 	env->explored_states = kcalloc(env->prog->len,
