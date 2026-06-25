@@ -154,8 +154,6 @@ struct bpf_call_arg_meta {
 /* verbose verifier prints what it's seeing
  * bpf_check() is called under lock, so no race to access these global vars
  */
-static u32 log_level, log_size, log_len;
-static char *log_buf;
 static struct bpf_verifier_log verifier_log;
 
 static DEFINE_MUTEX(bpf_verifier_lock);
@@ -721,7 +719,7 @@ static int check_map_access_adj(struct bpf_verifier_env *env, u32 regno,
 	 * respectively to make sure our theoretical access will be
 	 * safe.
 	 */
-	if (log_level)
+	if (verifier_log.level)
 		print_verifier_state(state);
 	env->varlen_map_value_access = true;
 	/* The minimum value is only important with signed
@@ -836,12 +834,6 @@ static bool is_pointer_value(struct bpf_verifier_env *env, int regno)
 	return __is_pointer_value(env->allow_ptr_leaks, &env->cur_state.regs[regno]);
 }
 
-static bool type_is_sk_pointer(enum bpf_reg_type type)
-{
-	return type == PTR_TO_SOCKET || type == PTR_TO_SOCKET_OR_NULL ||
-		type == PTR_TO_SOCK_COMMON || type == PTR_TO_SOCK_COMMON_OR_NULL;
-}
-
 static bool is_ctx_reg(struct bpf_verifier_env *env, int regno)
 {
 	const struct bpf_reg_state *reg = &env->cur_state.regs[regno];
@@ -889,6 +881,12 @@ static int check_ptr_alignment(struct bpf_verifier_env *env,
  * if t==write && value_regno==-1, some unknown value is stored into memory
  * if t==read && value_regno==-1, don't care what we read from memory
  */
+static bool type_is_sk_pointer(enum bpf_reg_type type)
+{
+	return type == PTR_TO_SOCKET || type == PTR_TO_SOCKET_OR_NULL ||
+		type == PTR_TO_SOCK_COMMON || type == PTR_TO_SOCK_COMMON_OR_NULL;
+}
+
 static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regno, int off,
 			    int bpf_size, enum bpf_access_type t,
 			    int value_regno)
@@ -1167,7 +1165,10 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 		   arg_type == ARG_CONST_SIZE_OR_ZERO ||
 		   arg_type == ARG_CONST_ALLOC_SIZE_OR_ZERO) {
 		expected_type = CONST_IMM;
-		if (type != expected_type)
+		/* One exception. Allow UNKNOWN_VALUE registers when the
+		 * boundaries are known and don't cause unsafe memory accesses
+		 */
+		if (type != UNKNOWN_VALUE && type != expected_type)
 			goto err_type;
 	} else if (arg_type == ARG_CONST_MAP_PTR) {
 		expected_type = CONST_PTR_TO_MAP;
@@ -1360,8 +1361,15 @@ static int check_map_func_compatibility(struct bpf_map *map, int func_id)
 			goto error;
 		break;
 	case BPF_MAP_TYPE_CGROUP_ARRAY:
-		if (func_id != BPF_FUNC_skb_under_cgroup &&
-		    func_id != BPF_FUNC_current_task_under_cgroup)
+		if (func_id != BPF_FUNC_skb_under_cgroup)
+			goto error;
+		break;
+	/* devmap returns a pointer to a live net_device ifindex that we cannot
+	 * allow to be modified from bpf side. So do not allow lookup elements
+	 * for now.
+	 */
+	case BPF_MAP_TYPE_DEVMAP:
+		if (func_id == BPF_FUNC_map_lookup_elem)
 			goto error;
 		break;
 	case BPF_MAP_TYPE_ARRAY_OF_MAPS:
@@ -1398,7 +1406,6 @@ static int check_map_func_compatibility(struct bpf_map *map, int func_id)
 		if (map->map_type != BPF_MAP_TYPE_STACK_TRACE)
 			goto error;
 		break;
-	case BPF_FUNC_current_task_under_cgroup:
 	case BPF_FUNC_skb_under_cgroup:
 		if (map->map_type != BPF_MAP_TYPE_CGROUP_ARRAY)
 			goto error;
@@ -2590,7 +2597,7 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 		verbose("R%d pointer comparison prohibited\n", insn->dst_reg);
 		return -EACCES;
 	}
-	if (log_level)
+	if (verifier_log.level)
 		print_verifier_state(this_branch);
 	return 0;
 }
@@ -3018,7 +3025,7 @@ static bool states_equal(struct bpf_verifier_env *env,
 		 * we didn't do a variable access into a map then we are a-ok.
 		 */
 		if (!varlen_map_access &&
-		    memcmp(rold, rcur, offsetofend(struct bpf_reg_state, id)) == 0)
+		    memcmp(rold, rcur, offsetof(struct bpf_reg_state, id)+4) == 0)
 			continue;
 
 		/* If we didn't map access then again we don't care about the
@@ -3130,6 +3137,8 @@ static bool reg_type_mismatch_ok(enum bpf_reg_type type)
 	case PTR_TO_CTX:
 	case PTR_TO_SOCKET:
 	case PTR_TO_SOCKET_OR_NULL:
+	case PTR_TO_SOCK_COMMON:
+	case PTR_TO_SOCK_COMMON_OR_NULL:
 		return false;
 	default:
 		return true;
@@ -3191,7 +3200,7 @@ static int do_check(struct bpf_verifier_env *env)
 			return err;
 		if (err == 1) {
 			/* found equivalent state, can prune the search */
-			if (log_level) {
+			if (verifier_log.level) {
 				if (do_print_state)
 					verbose("\nfrom %d to %d: safe\n",
 						prev_insn_idx, insn_idx);
@@ -3207,13 +3216,14 @@ static int do_check(struct bpf_verifier_env *env)
 		if (need_resched())
 			cond_resched();
 
-		if (log_level && do_print_state) {
+		if (verifier_log.level > 1 ||
+		    (verifier_log.level && do_print_state)) {
 			verbose("\nfrom %d to %d:", prev_insn_idx, insn_idx);
 			print_verifier_state(&env->cur_state);
 			do_print_state = false;
 		}
 
-		if (log_level) {
+		if (verifier_log.level) {
 			verbose("%d: ", insn_idx);
 			print_bpf_insn(env, insn);
 		}
@@ -3920,9 +3930,6 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr)
 		log->len_total = attr->log_size;
 		log->len_used = 0;
 
-		/* keep the global log_level in sync for legacy references */
-		log_level = log->level;
-
 		ret = -EINVAL;
 		/* log_* values have to be sane */
 		if (log->len_total < 128 || log->len_total > UINT_MAX >> 8 ||
@@ -3932,7 +3939,7 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr)
 		ret = -ENOMEM;
 	} else {
 		log->level = 0;
-		log_level = 0;
+		log->level = 0;
 	}
 	if (attr->prog_flags & BPF_F_STRICT_ALIGNMENT)
 		env->strict_alignment = true;
@@ -4039,7 +4046,6 @@ int bpf_analyzer(struct bpf_prog *prog, const struct bpf_ext_analyzer_ops *ops,
 	/* grab the mutex to protect few globals used by verifier */
 	mutex_lock(&bpf_verifier_lock);
 
-	log_level = 0;
 	env->strict_alignment = false;
 
 	env->explored_states = kcalloc(env->prog->len,
