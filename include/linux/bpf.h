@@ -84,6 +84,11 @@ struct bpf_map_type_list {
 	enum bpf_map_type type;
 };
 
+static inline bool bpf_map_support_seq_show(const struct bpf_map *map)
+{
+	return map->ops->map_seq_show_elem && map->ops->map_check_btf;
+}
+
 /* function argument constraints */
 enum bpf_arg_type {
 	ARG_DONTCARE = 0,	/* unused argument in helper function */
