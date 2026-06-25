@@ -2257,6 +2257,7 @@ static inline void *f2fs_kmalloc(struct f2fs_sb_info *sbi,
 	return kmalloc(size, flags);
 }
 
+#ifndef __MM_KVMALLOC_DEFINED
 static inline void *kvmalloc(size_t size, gfp_t flags)
 {
 	void *ret;
@@ -2276,6 +2277,7 @@ static inline void *kvzalloc(size_t size, gfp_t flags)
 		ret = __vmalloc(size, flags | __GFP_ZERO, PAGE_KERNEL);
 	return ret;
 }
+#endif
 
 static inline void f2fs_kvfree(void *ptr)
 {
