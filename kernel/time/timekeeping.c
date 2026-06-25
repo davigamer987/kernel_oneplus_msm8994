@@ -240,11 +240,9 @@ static inline s64 timekeeping_get_ns_raw(struct timekeeper *tk)
  */
 u64 notrace ktime_get_boot_fast_ns(void)
 {
-	struct timekeeper *tk = &timekeeper;
-	u64 mono;
+	struct timekeeper *tk = &tk_core.timekeeper;
 
-	mono = ktime_to_ns(timespec_to_ktime(tk->xtime)) + ktime_to_ns(timespec_to_ktime(tk->wall_to_monotonic));
-	return (mono + ktime_to_ns(tk->offs_boot));
+	return (ktime_get_mono_fast_ns() + ktime_to_ns(tk->offs_boot));
 }
 EXPORT_SYMBOL_GPL(ktime_get_boot_fast_ns);
 
