@@ -10,6 +10,7 @@
  * General Public License for more details.
  */
 #include <linux/bpf.h>
+#include <linux/btf.h>
 #include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/mm.h>
@@ -17,7 +18,6 @@
 #include <linux/filter.h>
 #include <linux/perf_event.h>
 #include <uapi/linux/btf.h>
-#include <linux/btf.h>
 
 #include "map_in_map.h"
 

@@ -593,6 +593,24 @@ static void free_htab_elem(struct bpf_htab *htab, struct htab_elem *l)
 	}
 }
 
+static void pcpu_copy_value(struct bpf_htab *htab, void __percpu *pptr,
+			    void *value, bool onallcpus)
+{
+	if (!onallcpus) {
+		/* copy true value_size bytes */
+		memcpy(this_cpu_ptr(pptr), value, htab->map.value_size);
+	} else {
+		u32 size = round_up(htab->map.value_size, 8);
+		int off = 0, cpu;
+
+		for_each_possible_cpu(cpu) {
+			bpf_long_memcpy(per_cpu_ptr(pptr, cpu),
+					value + off, size);
+			off += size;
+		}
+	}
+}
+
 static struct htab_elem *alloc_htab_elem(struct bpf_htab *htab, void *key,
 					 void *value, u32 key_size, u32 hash,
 					 bool percpu, bool onallcpus,
@@ -680,23 +698,6 @@ static int check_flags(struct bpf_htab *htab, struct htab_elem *l_old,
 		return -ENOENT;
 
 	return 0;
-}
-
-static void pcpu_copy_value(struct bpf_htab *htab, void __percpu *pptr,
-			    void *value, bool onallcpus)
-{
-	if (!onallcpus) {
-		memcpy(this_cpu_ptr(pptr), value, htab->map.value_size);
-	} else {
-		u32 size = round_up(htab->map.value_size, 8);
-		int off = 0, cpu;
-
-		for_each_possible_cpu(cpu) {
-			bpf_long_memcpy(per_cpu_ptr(pptr, cpu),
-					value + off, size);
-			off += size;
-		}
-	}
 }
 
 /* Called from syscall or from eBPF program */

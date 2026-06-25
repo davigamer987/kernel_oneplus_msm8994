@@ -5,9 +5,9 @@
 #define _LINUX_BTF_H 1
 
 #include <linux/types.h>
+#include <uapi/linux/btf.h>
 
 struct btf;
-struct btf_type;
 union bpf_attr;
 
 extern const struct file_operations btf_fops;
