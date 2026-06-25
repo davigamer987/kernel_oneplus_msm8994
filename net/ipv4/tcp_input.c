@@ -2982,7 +2982,7 @@ void tcp_synack_rtt_meas(struct sock *sk, struct request_sock *req)
 static void tcp_cong_avoid(struct sock *sk, u32 ack, u32 acked, u32 in_flight)
 {
 	const struct inet_connection_sock *icsk = inet_csk(sk);
-	icsk->icsk_ca_ops->cong_avoid(sk, ack, acked, in_flight);
+	icsk->icsk_ca_ops->cong_avoid(sk, ack, in_flight);
 	tcp_sk(sk)->snd_cwnd_stamp = tcp_time_stamp;
 }
 
@@ -3077,7 +3077,7 @@ static int tcp_clean_rtx_queue(struct sock *sk, int prior_fackets,
 	u32 prior_sacked = tp->sacked_out;
 	u32 reord = tp->packets_out;
 	bool fully_acked = true;
-	long ca_seq_rtt_us = -1L;
+	long ca_rtt_us = -1L;
 	long seq_rtt_us = -1L;
 	struct sk_buff *skb;
 	u32 pkts_acked = 0;
@@ -3164,7 +3164,7 @@ static int tcp_clean_rtx_queue(struct sock *sk, int prior_fackets,
 	skb_mstamp_get(&now);
 	if (first_ackt.v64) {
 		seq_rtt_us = skb_mstamp_us_delta(&now, &first_ackt);
-		ca_seq_rtt_us = skb_mstamp_us_delta(&now, &last_ackt);
+		ca_rtt_us = skb_mstamp_us_delta(&now, &last_ackt);
 	}
 
 	rtt_update = tcp_ack_update_rtt(sk, flag, seq_rtt_us, sack_rtt_us,
@@ -3197,7 +3197,7 @@ static int tcp_clean_rtx_queue(struct sock *sk, int prior_fackets,
 		tp->fackets_out -= min(pkts_acked, tp->fackets_out);
 
 		if (ca_ops->pkts_acked)
-			ca_ops->pkts_acked(sk, pkts_acked, ca_seq_rtt_us);
+			ca_ops->pkts_acked(sk, pkts_acked, ca_rtt_us);
 
 	} else if (skb && rtt_update && sack_rtt_us >= 0 &&
 		   sack_rtt_us > skb_mstamp_us_delta(&now, &skb->skb_mstamp)) {
@@ -3911,8 +3911,7 @@ static void tcp_fin(struct sock *sk)
 		/* Move to CLOSE_WAIT */
 		tcp_set_state(sk, TCP_CLOSE_WAIT);
 		dst = __sk_dst_get(sk);
-		if (!dst || !dst_metric(dst, RTAX_QUICKACK))
-			inet_csk(sk)->icsk_ack.pingpong = 1;
+		inet_csk(sk)->icsk_ack.pingpong = 1;
 		break;
 
 	case TCP_CLOSE_WAIT:

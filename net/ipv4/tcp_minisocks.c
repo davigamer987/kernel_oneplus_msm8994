@@ -232,7 +232,6 @@ kill:
 		u32 isn = tcptw->tw_snd_nxt + 65535 + 2;
 		if (isn == 0)
 			isn++;
-		TCP_SKB_CB(skb)->tcp_tw_isn = isn;
 		return TCP_TW_SYN;
 	}
 
@@ -429,9 +428,6 @@ struct sock *tcp_create_openreq_child(struct sock *sk, struct request_sock *req,
 		    !try_module_get(newicsk->icsk_ca_ops->owner))
 			newicsk->icsk_ca_ops = &tcp_init_congestion_ops;
 
-		/* There's a bubble in the pipe until at least the first ACK. */
-		newtp->app_limited = ~0U;
-
 		tcp_set_ca_state(newsk, TCP_CA_Open);
 		tcp_init_xmit_timers(newsk);
 		skb_queue_head_init(&newtp->out_of_order_queue);
@@ -488,8 +484,6 @@ struct sock *tcp_create_openreq_child(struct sock *sk, struct request_sock *req,
 		TCP_ECN_openreq_child(newtp, req);
 		newtp->fastopen_rsk = NULL;
 		newtp->syn_data_acked = 0;
-		newtp->rack.mstamp.v64 = 0;
-		newtp->rack.advanced = 0;
 
 		TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_PASSIVEOPENS);
 	}
