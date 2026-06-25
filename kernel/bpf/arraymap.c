@@ -390,63 +390,6 @@ int array_map_mmap(struct bpf_map *map, struct vm_area_struct *vma)
 	return remap_vmalloc_range(vma, array_map_vmalloc_addr(array), pgoff);
 }
 
-static void array_map_seq_show_elem(struct bpf_map *map, void *key,
-				    struct seq_file *m)
-{
-	void *value;
-
-	rcu_read_lock();
-
-	value = array_map_lookup_elem(map, key);
-	if (!value) {
-		rcu_read_unlock();
-		return;
-	}
-
-	seq_printf(m, "%u: ", *(u32 *)key);
-	btf_type_seq_show(map->btf, map->btf_value_type_id, value, m);
-	seq_puts(m, "\n");
-
-	rcu_read_unlock();
-}
-
-static int array_map_check_btf(const struct bpf_map *map, const struct btf *btf,
-			       u32 btf_key_id, u32 btf_value_id)
-{
-	const struct btf_type *key_type, *value_type;
-	u32 key_size, value_size;
-	u32 int_data;
-
-	key_type = btf_type_id_size(btf, &btf_key_id, &key_size);
-	if (!key_type || BTF_INFO_KIND(key_type->info) != BTF_KIND_INT)
-		return -EINVAL;
-
-	int_data = *(u32 *)(key_type + 1);
-	/* bpf array can only take a u32 key.  This check makes
-	 * sure that the btf matches the attr used during map_create.
-	 */
-	if (BTF_INT_BITS(int_data) != 32 || key_size != 4 ||
-	    BTF_INT_OFFSET(int_data))
-		return -EINVAL;
-
-	value_type = btf_type_id_size(btf, &btf_value_id, &value_size);
-	if (!value_type || value_size > map->value_size)
-		return -EINVAL;
-
-	return 0;
-}
-
-int array_map_mmap(struct bpf_map *map, struct vm_area_struct *vma)
-{
-	struct bpf_array *array = container_of(map, struct bpf_array, map);
-	pgoff_t pgoff = PAGE_ALIGN(sizeof(*array)) >> PAGE_SHIFT;
-
-	if (!(map->map_flags & BPF_F_MMAPABLE))
-		return -EINVAL;
-
-	return remap_vmalloc_range(vma, array_map_vmalloc_addr(array), pgoff);
-}
-
 static const struct bpf_map_ops array_ops = {
 	.map_alloc = array_map_alloc,
 	.map_free = array_map_free,
@@ -736,7 +679,6 @@ static int __init register_perf_event_array_map(void)
 }
 late_initcall(register_perf_event_array_map);
 
-#ifdef CONFIG_CGROUPS
 static void *cgroup_fd_array_get_ptr(struct bpf_map *map,
 				     struct file *map_file /* not used */,
 				     int fd)
@@ -777,7 +719,6 @@ static int __init register_cgroup_array_map(void)
 	return 0;
 }
 late_initcall(register_cgroup_array_map);
-#endif
 
 static struct bpf_map *array_of_map_alloc(union bpf_attr *attr)
 {
