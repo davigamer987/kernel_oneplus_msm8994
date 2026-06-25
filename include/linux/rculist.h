@@ -480,6 +480,8 @@ static inline void hlist_add_after_rcu(struct hlist_node *prev,
 		pos = hlist_entry_safe(rcu_dereference_raw(hlist_next_rcu(\
 			&(pos)->member)), typeof(*(pos)), member))
 
+#define hlist_for_each_entry_rcu_new hlist_for_each_entry_rcu
+
 /**
  * hlist_for_each_entry_rcu_notrace - iterate over rcu list of given type (for tracing)
  * @pos:	the type * to use as a loop cursor.

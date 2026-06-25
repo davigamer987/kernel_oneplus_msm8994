@@ -750,4 +750,6 @@ static inline void hlist_move_list(struct hlist_head *old,
 	     pos && ({ n = pos->member.next; 1; });			\
 	     pos = hlist_entry_safe(n, typeof(*pos), member))
 
+#define hlist_for_each_entry_safe_new hlist_for_each_entry_safe
+
 #endif

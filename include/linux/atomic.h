@@ -164,4 +164,11 @@ static inline void atomic_or(int i, atomic_t *v)
 #ifdef CONFIG_GENERIC_ATOMIC64
 #include <asm-generic/atomic64.h>
 #endif
+
+#ifndef atomic_cmpxchg_relaxed
+#define atomic_cmpxchg_relaxed	atomic_cmpxchg
+#define atomic_cmpxchg_acquire	atomic_cmpxchg
+#define atomic_cmpxchg_release	atomic_cmpxchg
+#endif
+
 #endif /* _LINUX_ATOMIC_H */
