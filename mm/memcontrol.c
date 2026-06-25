@@ -55,6 +55,7 @@
 #include <linux/cpu.h>
 #include <linux/oom.h>
 #include <linux/file.h>
+#include <linux/vmpressure.h>
 #include "internal.h"
 #include <net/sock.h>
 #include <net/ip.h>
@@ -301,6 +302,9 @@ struct mem_cgroup {
 	 */
 	struct res_counter res;
 
+	/* vmpressure notifications */
+	struct vmpressure vmpressure;
+
 	/*
 	 * the counter to account for mem+swap usage.
 	 */
@@ -529,6 +533,24 @@ static DEFINE_MUTEX(memcg_create_mutex);
 struct mem_cgroup *mem_cgroup_from_css(struct cgroup_subsys_state *s)
 {
 	return s ? container_of(s, struct mem_cgroup, css) : NULL;
+}
+
+/* Some nice accessors for the vmpressure. */
+struct vmpressure *memcg_to_vmpressure(struct mem_cgroup *memcg)
+{
+	if (!memcg)
+		memcg = root_mem_cgroup;
+	return &memcg->vmpressure;
+}
+
+struct cgroup_subsys_state *vmpressure_to_css(struct vmpressure *vmpr)
+{
+	return &container_of(vmpr, struct mem_cgroup, vmpressure)->css;
+}
+
+struct vmpressure *css_to_vmpressure(struct cgroup_subsys_state *css)
+{
+	return &mem_cgroup_from_css(css)->vmpressure;
 }
 
 static inline bool mem_cgroup_is_root(struct mem_cgroup *memcg)
@@ -6076,6 +6098,9 @@ static ssize_t cgroup_write_event_control(struct kernfs_open_file *of,
 	} else if (!strcmp(name, "memory.oom_control")) {
 		event->register_event = mem_cgroup_oom_register_event;
 		event->unregister_event = mem_cgroup_oom_unregister_event;
+	} else if (!strcmp(name, "memory.pressure_level")) {
+		event->register_event = vmpressure_register_event;
+		event->unregister_event = vmpressure_unregister_event;
 	} else if (!strcmp(name, "memory.memsw.usage_in_bytes")) {
 		event->register_event = memsw_cgroup_usage_register_event;
 		event->unregister_event = memsw_cgroup_usage_unregister_event;
@@ -6426,6 +6451,7 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	memcg->move_charge_at_immigrate = 0;
 	mutex_init(&memcg->thresholds_lock);
 	spin_lock_init(&memcg->move_lock);
+	vmpressure_init(&memcg->vmpressure);
 	INIT_LIST_HEAD(&memcg->event_list);
 	spin_lock_init(&memcg->event_list_lock);
 
@@ -6508,6 +6534,7 @@ static void mem_cgroup_css_offline(struct cgroup_subsys_state *css)
 	mem_cgroup_invalidate_reclaim_iterators(memcg);
 	mem_cgroup_reparent_charges(memcg);
 	mem_cgroup_destroy_all_caches(memcg);
+	vmpressure_cleanup(&memcg->vmpressure);
 }
 
 static void mem_cgroup_css_free(struct cgroup_subsys_state *css)
